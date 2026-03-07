@@ -30,9 +30,43 @@ let bossBars = [];
 
 // Input
 const keys = {};
+let isTouching = false;
+let touchX = 0;
+let touchY = 0;
 
 window.addEventListener("keydown", (e) => (keys[e.code] = true));
 window.addEventListener("keyup", (e) => (keys[e.code] = false));
+
+// Mobile Touch Controls
+canvas.addEventListener(
+  "touchstart",
+  (e) => {
+    e.preventDefault();
+    isTouching = true;
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    touchX = touch.clientX - rect.left;
+    touchY = touch.clientY - rect.top;
+  },
+  { passive: false },
+);
+
+canvas.addEventListener(
+  "touchmove",
+  (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    touchX = touch.clientX - rect.left;
+    touchY = touch.clientY - rect.top;
+  },
+  { passive: false },
+);
+
+canvas.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  isTouching = false;
+});
 
 // Upgrades Configuration
 const UPGRADES = {
@@ -96,13 +130,23 @@ class Player {
     if (keys["ArrowUp"] || keys["KeyW"]) this.y -= speed;
     if (keys["ArrowDown"] || keys["KeyS"]) this.y += speed;
 
+    // Touch movement (snap to finger with offset so finger doesn't block ship)
+    if (isTouching) {
+      // Approach finger position
+      const targetX = touchX - this.w / 2;
+      const targetY = touchY - this.h * 2; // Keep ship above finger
+
+      this.x += (targetX - this.x) * 0.2; // Smooth snapping
+      this.y += (targetY - this.y) * 0.2;
+    }
+
     // Bounds
     this.x = Math.max(0, Math.min(canvas.width - this.w, this.x));
     this.y = Math.max(0, Math.min(canvas.height - this.h, this.y));
 
     // Shooting
     if (this.shootCooldown > 0) this.shootCooldown--;
-    if (keys["Space"]) {
+    if (keys["Space"] || isTouching) {
       this.shoot();
     }
   }
@@ -388,72 +432,166 @@ class Enemy {
   }
 }
 
-class SineEnemy extends Enemy {
+class JetEnemy extends Enemy {
   constructor() {
     super();
-    this.color = "#00FFFF";
-    this.amplitude = 40 + Math.random() * 40;
-    this.frequency = 0.02 + Math.random() * 0.03;
-    this.startX = this.x;
-    this.w = 16;
-    this.h = 16;
+    this.w = 20;
+    this.h = 24;
+    this.color = "#FF4500";
+    this.speed = 2 + Math.random() * 1.5;
+
+    // Ramming logic
+    this.targetSet = false;
+    this.vx = 0;
+    this.vy = this.speed;
   }
+
   update() {
-    this.y += this.speed;
-    this.x = this.startX + Math.sin(frame * this.frequency) * this.amplitude;
-    this.x = Math.max(0, Math.min(canvas.width - this.w, this.x));
+    this.y += this.vy;
+    this.x += this.vx;
+
+    // S-curve diving or direct ramming
+    if (!this.targetSet && this.y > canvas.height * 0.2) {
+      this.targetSet = true;
+      // Dive towards player occasionally
+      if (Math.random() < 0.6) {
+        const dx = player.x + player.w / 2 - (this.x + this.w / 2);
+        this.vx = dx * 0.02; // Steer towards player
+        this.vy += 1; // Speed up descent
+      }
+    }
+
     if (this.y > canvas.height) this.markedForDeletion = true;
   }
+
   draw() {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
+    const w = this.w;
+    const h = this.h;
+
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = this.color;
 
-    ctx.fillStyle = this.color;
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = "#FF4500";
+
+    // Thruster
+    ctx.fillStyle = Math.random() > 0.5 ? "#FFD700" : "#FF8C00";
     ctx.beginPath();
-    // Shuriken shape
-    for (let i = 0; i < 4; i++) {
-      ctx.rotate(Math.PI / 2);
-      ctx.moveTo(0, 0);
-      ctx.lineTo(this.w / 2, 0);
-      ctx.lineTo(this.w / 4, this.h / 4);
-    }
+    ctx.moveTo(-w / 6, -h / 2);
+    ctx.lineTo(0, -h / 2 - (Math.random() * h) / 2);
+    ctx.lineTo(w / 6, -h / 2);
     ctx.fill();
+
+    // Jet Body
+    ctx.fillStyle = "#8B0000"; // Dark red jet
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2); // Nose pointing down
+    ctx.lineTo(w / 6, h / 4);
+    ctx.lineTo(w / 2, -h / 6); // Wing tip right
+    ctx.lineTo(w / 4, -h / 4);
+    ctx.lineTo(w / 6, -h / 2); // Right exhaust
+    ctx.lineTo(-w / 6, -h / 2); // Left exhaust
+    ctx.lineTo(-w / 4, -h / 4);
+    ctx.lineTo(-w / 2, -h / 6); // Wing tip left
+    ctx.lineTo(-w / 6, h / 4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cockpit
+    ctx.fillStyle = "#00BFFF";
+    ctx.beginPath();
+    ctx.ellipse(0, h / 6, w / 6, h / 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.restore();
   }
 }
 
-class TrackerEnemy extends Enemy {
+class HelicopterEnemy extends Enemy {
   constructor() {
     super();
-    this.color = "#FF4500";
-    this.w = 12;
-    this.h = 12;
-    this.speed = 1.5 + Math.random();
+    this.w = 28;
+    this.h = 28;
+    this.speed = 1.0 + Math.random() * 0.5;
+    this.hp = 3 + Math.floor(score / 100);
+    this.color = "#2E8B57"; // SeaGreen
+    this.rot = 0;
+    this.shootTimer = 60 + Math.random() * 60;
   }
+
   update() {
     this.y += this.speed;
-    if (player.x + player.w / 2 > this.x + this.w / 2) {
-      this.x += 0.5;
-    } else {
-      this.x -= 0.5;
+    this.rot += 0.3; // Rotor spin
+
+    // Hover and track player horizontally
+    if (this.y > canvas.height * 0.15 && this.y < canvas.height * 0.5) {
+      if (player.x + player.w / 2 > this.x + this.w / 2) {
+        this.x += 0.8;
+      } else {
+        this.x -= 0.8;
+      }
     }
+
+    // Shooting
+    if (this.y > 0) {
+      this.shootTimer--;
+      if (this.shootTimer <= 0) {
+        const cx = this.x + this.w / 2;
+        const cy = this.y + this.h;
+        let b = new Bullet(cx - 2, cy, 1, 4, 8, "#f0f", -3, 0); // Firing downwards
+        b.isEnemyBullet = true;
+        bullets.push(b);
+        this.shootTimer = 80;
+      }
+    }
+
     if (this.y > canvas.height) this.markedForDeletion = true;
   }
+
   draw() {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
+    const w = this.w;
+    const h = this.h;
+
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = this.color;
-    // Cross shape
+
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = "#556B2F";
+
+    // Tail boom
+    ctx.fillStyle = "#556B2F"; // Dark Olive Green
+    ctx.fillRect(-w / 8, -h / 2, w / 4, h / 2);
+
+    // Main hull
     ctx.fillStyle = this.color;
-    ctx.fillRect(-this.w / 2, -2, this.w, 4);
-    ctx.fillRect(-2, -this.h / 2, 4, this.h);
+    ctx.beginPath();
+    ctx.ellipse(0, h / 6, w / 3, h / 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cockpit glass
+    ctx.fillStyle = "#00FFFF";
+    ctx.beginPath();
+    ctx.ellipse(0, h / 3, w / 5, h / 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rotor blades
+    ctx.save();
+    ctx.translate(0, 0); // Center of rotor
+    ctx.rotate(this.rot);
+    ctx.fillStyle = "rgba(200, 200, 200, 0.7)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w / 1.2, h / 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#111"; // Rotor hub
+    ctx.beginPath();
+    ctx.arc(0, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
     ctx.restore();
   }
 }
@@ -795,9 +933,9 @@ function update() {
     if (frame % spawnRate === 0) {
       const type = Math.random();
       if (type < 0.3 && round > 1) {
-        enemies.push(new SineEnemy());
+        enemies.push(new JetEnemy());
       } else if (type < 0.5 && round > 2) {
-        enemies.push(new TrackerEnemy());
+        enemies.push(new HelicopterEnemy());
       } else {
         enemies.push(new Enemy());
       }
