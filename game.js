@@ -28,11 +28,105 @@ let particles = [];
 let floatingTexts = [];
 let bossBars = [];
 
+// Image Assets
+const imgPlayer = new Image();
+imgPlayer.src = "player.png";
+
+const imgJet = new Image();
+imgJet.src = "jet.png";
+
+const imgHeli = new Image();
+imgHeli.src = "heli.png";
+
+const imgBoss = new Image();
+imgBoss.src = "boss.png";
+
 // Input
 const keys = {};
 let isTouching = false;
 let touchX = 0;
 let touchY = 0;
+
+// Audio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type) {
+  if (audioCtx.state === "suspended") audioCtx.resume();
+
+  const osc = audioCtx.createOscillator();
+  const gainNode = audioCtx.createGain();
+
+  osc.connect(gainNode);
+  gainNode.connect(audioCtx.destination);
+
+  const now = audioCtx.currentTime;
+
+  if (type === "shoot") {
+    osc.type = "square";
+    osc.frequency.setValueAtTime(800, now);
+    osc.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+    gainNode.gain.setValueAtTime(0.05, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  } else if (type === "enemy_shoot") {
+    osc.type = "square";
+    osc.frequency.setValueAtTime(400, now);
+    osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+    gainNode.gain.setValueAtTime(0.05, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  } else if (type === "hit") {
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(100, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+    gainNode.gain.setValueAtTime(0.05, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  } else if (type === "explosion") {
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(10, now + 0.5);
+    gainNode.gain.setValueAtTime(0.1, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+    osc.start(now);
+    osc.stop(now + 0.5);
+  } else if (type === "coin") {
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1200, now);
+    osc.frequency.setValueAtTime(1600, now + 0.05);
+    gainNode.gain.setValueAtTime(0.05, now);
+    gainNode.gain.linearRampToValueAtTime(0, now + 0.1);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  } else if (type === "powerup") {
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(400, now);
+    osc.frequency.linearRampToValueAtTime(800, now + 0.2);
+    gainNode.gain.setValueAtTime(0.05, now);
+    gainNode.gain.linearRampToValueAtTime(0, now + 0.2);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  } else if (type === "boss_spawn") {
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(100, now);
+    osc.frequency.linearRampToValueAtTime(50, now + 1.0);
+    gainNode.gain.setValueAtTime(0.1, now);
+    gainNode.gain.linearRampToValueAtTime(0, now + 1.0);
+    osc.start(now);
+    osc.stop(now + 1.0);
+  } else if (type === "player_death") {
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(10, now + 0.5);
+    gainNode.gain.setValueAtTime(0.1, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+    osc.start(now);
+    osc.stop(now + 0.5);
+  }
+}
 
 window.addEventListener("keydown", (e) => (keys[e.code] = true));
 window.addEventListener("keyup", (e) => (keys[e.code] = false));
@@ -91,6 +185,11 @@ btnRestart.addEventListener("click", () => {
   initGame();
 });
 
+btnRestart.addEventListener("touchstart", (e) => {
+  e.preventDefault(); // Prevent double-firing on some touch devices
+  initGame();
+});
+
 function updateUI() {
   scoreEl.innerText = `Score: ${score} | Round: ${round}`;
   upgSpeedLvl.innerText = UPGRADES.speed.level;
@@ -101,8 +200,8 @@ function updateUI() {
 // Classes
 class Player {
   constructor() {
-    this.w = 18;
-    this.h = 20;
+    this.w = 32;
+    this.h = 32;
     this.x = canvas.width / 2 - this.w / 2;
     this.y = canvas.height - this.h - 20;
     this.color = "#0ff";
@@ -118,8 +217,8 @@ class Player {
         3,
     );
     const scale = 1 + totalUpgrades * 0.05; // Grows by 5% per upgrade level
-    this.w = 18 * scale;
-    this.h = 20 * scale;
+    this.w = 32 * scale;
+    this.h = 32 * scale;
 
     const speed =
       UPGRADES.speed.baseVal +
@@ -153,6 +252,7 @@ class Player {
 
   shoot() {
     if (this.shootCooldown <= 0) {
+      playSound("shoot");
       const fireCooldown = Math.max(
         4,
         UPGRADES.fireRate.baseVal +
@@ -270,48 +370,14 @@ class Player {
   draw() {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
-    const w = this.w;
-    const h = this.h;
 
     ctx.save();
     ctx.translate(cx, cy);
 
-    // Flame
-    ctx.fillStyle = Math.random() > 0.5 ? "#ff4500" : "#ff8c00";
-    ctx.beginPath();
-    ctx.moveTo(-w / 6, h / 2 - h / 8);
-    ctx.lineTo(0, h / 2 + Math.random() * (h / 2));
-    ctx.lineTo(w / 6, h / 2 - h / 8);
-    ctx.fill();
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = this.color;
 
-    // Wings
-    ctx.fillStyle = "#2a0845";
-    ctx.beginPath();
-    ctx.moveTo(0, -h / 6);
-    ctx.lineTo(-w / 2, h / 3);
-    ctx.lineTo(-w / 3, h / 2);
-    ctx.lineTo(0, h / 4);
-    ctx.lineTo(w / 3, h / 2);
-    ctx.lineTo(w / 2, h / 3);
-    ctx.fill();
-
-    // Main Body
-    const grad = ctx.createLinearGradient(-w / 4, -h / 2, w / 4, h / 2);
-    grad.addColorStop(0, "#f5f7fa");
-    grad.addColorStop(1, "#c3cfe2");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(0, -h / 2);
-    ctx.quadraticCurveTo(w / 3, 0, w / 3, h / 2.5);
-    ctx.lineTo(-w / 3, h / 2.5);
-    ctx.quadraticCurveTo(-w / 3, 0, 0, -h / 2);
-    ctx.fill();
-
-    // Cockpit
-    ctx.fillStyle = "#00FFFF";
-    ctx.beginPath();
-    ctx.ellipse(0, 0, w / 6, h / 5, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.drawImage(imgPlayer, -this.w / 2, -this.h / 2, this.w, this.h);
 
     ctx.restore();
   }
@@ -350,8 +416,8 @@ class Bullet {
 
 class Enemy {
   constructor() {
-    this.w = 14;
-    this.h = 14;
+    this.w = 28;
+    this.h = 28;
     this.x = Math.random() * (canvas.width - this.w);
     this.y = -this.h;
     this.speed = 1 + Math.random();
@@ -368,45 +434,16 @@ class Enemy {
   draw() {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
-    const w = this.w;
-    const h = this.h;
 
     ctx.save();
     ctx.translate(cx, cy);
 
-    // Alien glow
     ctx.shadowBlur = 10;
     ctx.shadowColor = "#ff00ff";
 
-    // Engine
-    ctx.fillStyle = Math.random() > 0.5 ? "#FF4500" : "#8B0000";
-    ctx.beginPath();
-    ctx.moveTo(-w / 6, -h / 2);
-    ctx.lineTo(0, -h / 2 - Math.random() * (h / 2));
-    ctx.lineTo(w / 6, -h / 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Body
-    const grad = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
-    grad.addColorStop(0, "#8B008B");
-    grad.addColorStop(1, "#FF00FF");
-    ctx.fillStyle = grad;
-
-    ctx.beginPath();
-    ctx.moveTo(0, h / 2); // Nose pointing down
-    ctx.lineTo(w / 2, 0); // Right point
-    ctx.lineTo(w / 3, -h / 2); // Right top
-    ctx.lineTo(-w / 3, -h / 2); // Left top
-    ctx.lineTo(-w / 2, 0); // Left point
-    ctx.closePath();
-    ctx.fill();
-
-    // Core
-    ctx.fillStyle = "#32CD32";
-    ctx.beginPath();
-    ctx.arc(0, 0, w / 5, 0, Math.PI * 2);
-    ctx.fill();
+    // Rotate the image to point down
+    ctx.rotate(Math.PI);
+    ctx.drawImage(imgJet, -this.w / 2, -this.h / 2, this.w, this.h);
 
     ctx.restore();
   }
@@ -414,6 +451,7 @@ class Enemy {
   takeDamage(amt) {
     this.hp -= amt;
     if (this.hp <= 0) {
+      playSound("explosion");
       this.markedForDeletion = true;
       score += 10;
       spawnExplosion(this.x + this.w / 2, this.y + this.h / 2, this.color);
@@ -428,6 +466,8 @@ class Enemy {
       } else if (dropChance < 0.5) {
         droppedCoins.push(new Coin(this.x + this.w / 2, this.y + this.h / 2));
       }
+    } else {
+      playSound("hit");
     }
   }
 }
@@ -435,8 +475,8 @@ class Enemy {
 class JetEnemy extends Enemy {
   constructor() {
     super();
-    this.w = 20;
-    this.h = 24;
+    this.w = 32;
+    this.h = 36;
     this.color = "#FF4500";
     this.speed = 2 + Math.random() * 1.5;
 
@@ -467,8 +507,6 @@ class JetEnemy extends Enemy {
   draw() {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
-    const w = this.w;
-    const h = this.h;
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -476,34 +514,9 @@ class JetEnemy extends Enemy {
     ctx.shadowBlur = 5;
     ctx.shadowColor = "#FF4500";
 
-    // Thruster
-    ctx.fillStyle = Math.random() > 0.5 ? "#FFD700" : "#FF8C00";
-    ctx.beginPath();
-    ctx.moveTo(-w / 6, -h / 2);
-    ctx.lineTo(0, -h / 2 - (Math.random() * h) / 2);
-    ctx.lineTo(w / 6, -h / 2);
-    ctx.fill();
-
-    // Jet Body
-    ctx.fillStyle = "#8B0000"; // Dark red jet
-    ctx.beginPath();
-    ctx.moveTo(0, h / 2); // Nose pointing down
-    ctx.lineTo(w / 6, h / 4);
-    ctx.lineTo(w / 2, -h / 6); // Wing tip right
-    ctx.lineTo(w / 4, -h / 4);
-    ctx.lineTo(w / 6, -h / 2); // Right exhaust
-    ctx.lineTo(-w / 6, -h / 2); // Left exhaust
-    ctx.lineTo(-w / 4, -h / 4);
-    ctx.lineTo(-w / 2, -h / 6); // Wing tip left
-    ctx.lineTo(-w / 6, h / 4);
-    ctx.closePath();
-    ctx.fill();
-
-    // Cockpit
-    ctx.fillStyle = "#00BFFF";
-    ctx.beginPath();
-    ctx.ellipse(0, h / 6, w / 6, h / 5, 0, 0, Math.PI * 2);
-    ctx.fill();
+    // Re-use Jet sprite
+    ctx.rotate(Math.PI);
+    ctx.drawImage(imgJet, -this.w / 2, -this.h / 2, this.w, this.h);
 
     ctx.restore();
   }
@@ -512,8 +525,8 @@ class JetEnemy extends Enemy {
 class HelicopterEnemy extends Enemy {
   constructor() {
     super();
-    this.w = 28;
-    this.h = 28;
+    this.w = 40;
+    this.h = 40;
     this.speed = 1.0 + Math.random() * 0.5;
     this.hp = 3 + Math.floor(score / 100);
     this.color = "#2E8B57"; // SeaGreen
@@ -538,6 +551,7 @@ class HelicopterEnemy extends Enemy {
     if (this.y > 0) {
       this.shootTimer--;
       if (this.shootTimer <= 0) {
+        playSound("enemy_shoot");
         const cx = this.x + this.w / 2;
         const cy = this.y + this.h;
         let b = new Bullet(cx - 2, cy, 1, 4, 8, "#f0f", -3, 0); // Firing downwards
@@ -553,44 +567,15 @@ class HelicopterEnemy extends Enemy {
   draw() {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
-    const w = this.w;
-    const h = this.h;
 
     ctx.save();
     ctx.translate(cx, cy);
 
     ctx.shadowBlur = 8;
-    ctx.shadowColor = "#556B2F";
+    ctx.shadowColor = "#111";
 
-    // Tail boom
-    ctx.fillStyle = "#556B2F"; // Dark Olive Green
-    ctx.fillRect(-w / 8, -h / 2, w / 4, h / 2);
-
-    // Main hull
-    ctx.fillStyle = this.color;
-    ctx.beginPath();
-    ctx.ellipse(0, h / 6, w / 3, h / 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Cockpit glass
-    ctx.fillStyle = "#00FFFF";
-    ctx.beginPath();
-    ctx.ellipse(0, h / 3, w / 5, h / 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Rotor blades
-    ctx.save();
-    ctx.translate(0, 0); // Center of rotor
-    ctx.rotate(this.rot);
-    ctx.fillStyle = "rgba(200, 200, 200, 0.7)";
-    ctx.beginPath();
-    ctx.ellipse(0, 0, w / 1.2, h / 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#111"; // Rotor hub
-    ctx.beginPath();
-    ctx.arc(0, 0, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    ctx.rotate(Math.PI);
+    ctx.drawImage(imgHeli, -this.w / 2, -this.h / 2, this.w, this.h);
 
     ctx.restore();
   }
@@ -636,6 +621,7 @@ class Boss {
   }
 
   shoot() {
+    playSound("enemy_shoot");
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h;
     const bulletsToShoot = 3 + this.tier * 2;
@@ -658,22 +644,12 @@ class Boss {
     ctx.save();
     ctx.translate(cx, cy);
 
-    // Boss Core
+    // Boss Image
     ctx.shadowBlur = 20;
     ctx.shadowColor = "#f00";
-    ctx.fillStyle = "#111";
-    ctx.beginPath();
-    ctx.ellipse(0, 0, this.w / 2, this.h / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#f00";
-    ctx.lineWidth = 3;
-    ctx.stroke();
 
-    // Eye
-    ctx.fillStyle = "#f00";
-    ctx.beginPath();
-    ctx.arc(0, 0, this.w / 6, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.rotate(Math.PI);
+    ctx.drawImage(imgBoss, -this.w / 2, -this.h / 2, this.w, this.h);
 
     ctx.restore();
 
@@ -718,6 +694,8 @@ class Boss {
       inBossFight = false;
       round++;
       updateUI();
+    } else {
+      playSound("hit");
     }
   }
 }
@@ -914,6 +892,7 @@ function update() {
 
   // Progress logic
   if (score > round * 1500 && !inBossFight) {
+    playSound("boss_spawn");
     inBossFight = true;
     enemies = []; // Clear current mobs
     enemies.push(new Boss(round));
@@ -968,6 +947,7 @@ function update() {
     } else {
       // Check enemy bullet against player
       if (!bullet.markedForDeletion && checkCollision(bullet, player)) {
+        playSound("player_death");
         bullet.markedForDeletion = true;
         spawnExplosion(
           player.x + player.w / 2,
@@ -983,6 +963,7 @@ function update() {
   enemies.forEach((enemy) => {
     if (!enemy.markedForDeletion && checkCollision(player, enemy)) {
       // Player hit!
+      playSound("player_death");
       spawnExplosion(
         player.x + player.w / 2,
         player.y + player.h / 2,
@@ -995,6 +976,7 @@ function update() {
 
   droppedCoins.forEach((coin) => {
     if (!coin.markedForDeletion && checkCollision(player, coin)) {
+      playSound("coin");
       coin.markedForDeletion = true;
       score += 5; // Coins just give score now
       updateUI();
@@ -1003,6 +985,7 @@ function update() {
 
   droppedPowerUps.forEach((pu) => {
     if (!pu.markedForDeletion && checkCollision(player, pu)) {
+      playSound("powerup");
       pu.markedForDeletion = true;
       UPGRADES[pu.type].level++;
       floatingTexts.push(
