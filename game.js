@@ -50,81 +50,231 @@ let touchY = 0;
 // Audio
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
+function createNoise(duration) {
+  const sampleRate = audioCtx.sampleRate;
+  const length = sampleRate * duration;
+  const buffer = audioCtx.createBuffer(1, length, sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+  const node = audioCtx.createBufferSource();
+  node.buffer = buffer;
+  return node;
+}
+
 function playSound(type) {
   if (audioCtx.state === "suspended") audioCtx.resume();
-
-  const osc = audioCtx.createOscillator();
-  const gainNode = audioCtx.createGain();
-
-  osc.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-
   const now = audioCtx.currentTime;
 
   if (type === "shoot") {
+    // Punchy laser blip
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
     osc.type = "square";
-    osc.frequency.setValueAtTime(800, now);
-    osc.frequency.exponentialRampToValueAtTime(300, now + 0.1);
-    gainNode.gain.setValueAtTime(0.05, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-    osc.start(now);
-    osc.stop(now + 0.1);
-  } else if (type === "enemy_shoot") {
-    osc.type = "square";
-    osc.frequency.setValueAtTime(400, now);
-    osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
-    gainNode.gain.setValueAtTime(0.05, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-    osc.start(now);
-    osc.stop(now + 0.1);
-  } else if (type === "hit") {
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(100, now);
-    osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
-    gainNode.gain.setValueAtTime(0.05, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-    osc.start(now);
-    osc.stop(now + 0.2);
-  } else if (type === "explosion") {
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(150, now);
-    osc.frequency.exponentialRampToValueAtTime(10, now + 0.5);
-    gainNode.gain.setValueAtTime(0.1, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-    osc.start(now);
-    osc.stop(now + 0.5);
-  } else if (type === "coin") {
-    osc.type = "sine";
     osc.frequency.setValueAtTime(1200, now);
-    osc.frequency.setValueAtTime(1600, now + 0.05);
-    gainNode.gain.setValueAtTime(0.05, now);
-    gainNode.gain.linearRampToValueAtTime(0, now + 0.1);
+    osc.frequency.exponentialRampToValueAtTime(200, now + 0.08);
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    osc.connect(gain).connect(audioCtx.destination);
     osc.start(now);
-    osc.stop(now + 0.1);
-  } else if (type === "powerup") {
+    osc.stop(now + 0.08);
+
+  } else if (type === "enemy_shoot") {
+    // Lower, buzzy shot
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.exponentialRampToValueAtTime(100, now + 0.12);
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.12);
+
+  } else if (type === "hit") {
+    // Metallic thud with noise
+    const noise = createNoise(0.15);
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(800, now);
+    filter.Q.value = 2;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    noise.connect(filter).connect(gain).connect(audioCtx.destination);
+    noise.start(now);
+    noise.stop(now + 0.15);
+
+  } else if (type === "explosion") {
+    // Layered explosion: noise burst + low rumble
+    const noise = createNoise(0.5);
+    const nFilter = audioCtx.createBiquadFilter();
+    nFilter.type = "lowpass";
+    nFilter.frequency.setValueAtTime(2000, now);
+    nFilter.frequency.exponentialRampToValueAtTime(100, now + 0.5);
+    const nGain = audioCtx.createGain();
+    nGain.gain.setValueAtTime(0.25, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    noise.connect(nFilter).connect(nGain).connect(audioCtx.destination);
+    noise.start(now);
+    noise.stop(now + 0.5);
+
+    const osc = audioCtx.createOscillator();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(400, now);
-    osc.frequency.linearRampToValueAtTime(800, now + 0.2);
-    gainNode.gain.setValueAtTime(0.05, now);
-    gainNode.gain.linearRampToValueAtTime(0, now + 0.2);
+    osc.frequency.setValueAtTime(80, now);
+    osc.frequency.exponentialRampToValueAtTime(20, now + 0.4);
+    const oGain = audioCtx.createGain();
+    oGain.gain.setValueAtTime(0.2, now);
+    oGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    osc.connect(oGain).connect(audioCtx.destination);
     osc.start(now);
-    osc.stop(now + 0.2);
+    osc.stop(now + 0.4);
+
+  } else if (type === "coin") {
+    // Bright two-tone chime
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc1.type = "sine";
+    osc2.type = "sine";
+    osc1.frequency.setValueAtTime(1400, now);
+    osc2.frequency.setValueAtTime(1800, now);
+    osc2.frequency.setValueAtTime(2200, now + 0.06);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.linearRampToValueAtTime(0.0, now + 0.15);
+    osc1.connect(gain).connect(audioCtx.destination);
+    osc2.connect(gain);
+    osc1.start(now);
+    osc2.start(now + 0.06);
+    osc1.stop(now + 0.15);
+    osc2.stop(now + 0.15);
+
+  } else if (type === "powerup") {
+    // Rising arpeggio sweep
+    const notes = [523, 659, 784, 1047]; // C5 E5 G5 C6
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      const t = now + i * 0.06;
+      gain.gain.setValueAtTime(0.0, t);
+      gain.gain.linearRampToValueAtTime(0.1, t + 0.02);
+      gain.gain.linearRampToValueAtTime(0.0, t + 0.15);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.15);
+    });
+
   } else if (type === "boss_spawn") {
+    // Ominous rising siren with sub-bass
+    const osc = audioCtx.createOscillator();
     osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(100, now);
-    osc.frequency.linearRampToValueAtTime(50, now + 1.0);
-    gainNode.gain.setValueAtTime(0.1, now);
-    gainNode.gain.linearRampToValueAtTime(0, now + 1.0);
+    osc.frequency.setValueAtTime(60, now);
+    osc.frequency.linearRampToValueAtTime(200, now + 0.8);
+    osc.frequency.linearRampToValueAtTime(60, now + 1.2);
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0, now);
+    gain.gain.linearRampToValueAtTime(0.15, now + 0.3);
+    gain.gain.linearRampToValueAtTime(0.15, now + 0.8);
+    gain.gain.linearRampToValueAtTime(0.0, now + 1.2);
+    osc.connect(gain).connect(audioCtx.destination);
     osc.start(now);
-    osc.stop(now + 1.0);
+    osc.stop(now + 1.2);
+
+    const noise = createNoise(1.2);
+    const nFilter = audioCtx.createBiquadFilter();
+    nFilter.type = "lowpass";
+    nFilter.frequency.setValueAtTime(200, now);
+    nFilter.frequency.linearRampToValueAtTime(600, now + 0.8);
+    nFilter.frequency.linearRampToValueAtTime(100, now + 1.2);
+    const nGain = audioCtx.createGain();
+    nGain.gain.setValueAtTime(0.0, now);
+    nGain.gain.linearRampToValueAtTime(0.08, now + 0.3);
+    nGain.gain.linearRampToValueAtTime(0.0, now + 1.2);
+    noise.connect(nFilter).connect(nGain).connect(audioCtx.destination);
+    noise.start(now);
+    noise.stop(now + 1.2);
+
   } else if (type === "player_death") {
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(200, now);
-    osc.frequency.exponentialRampToValueAtTime(10, now + 0.5);
-    gainNode.gain.setValueAtTime(0.1, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-    osc.start(now);
-    osc.stop(now + 0.5);
+    // BOMB: sharp initial detonation click
+    const click = audioCtx.createOscillator();
+    click.type = "square";
+    click.frequency.setValueAtTime(1000, now);
+    click.frequency.exponentialRampToValueAtTime(80, now + 0.03);
+    const clickGain = audioCtx.createGain();
+    clickGain.gain.setValueAtTime(0.5, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    click.connect(clickGain).connect(audioCtx.destination);
+    click.start(now);
+    click.stop(now + 0.05);
+
+    // BOMB: massive concussive bass thump
+    const bomb = audioCtx.createOscillator();
+    bomb.type = "sine";
+    bomb.frequency.setValueAtTime(80, now + 0.03);
+    bomb.frequency.exponentialRampToValueAtTime(5, now + 1.5);
+    const bombGain = audioCtx.createGain();
+    bombGain.gain.setValueAtTime(0.0, now);
+    bombGain.gain.linearRampToValueAtTime(0.6, now + 0.04);
+    bombGain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+    bomb.connect(bombGain).connect(audioCtx.destination);
+    bomb.start(now);
+    bomb.stop(now + 1.5);
+
+    // BOMB: blast wave — wide noise burst
+    const blast = createNoise(1.8);
+    const blastFilter = audioCtx.createBiquadFilter();
+    blastFilter.type = "lowpass";
+    blastFilter.frequency.setValueAtTime(8000, now + 0.03);
+    blastFilter.frequency.exponentialRampToValueAtTime(30, now + 1.8);
+    const blastGain = audioCtx.createGain();
+    blastGain.gain.setValueAtTime(0.0, now);
+    blastGain.gain.linearRampToValueAtTime(0.45, now + 0.04);
+    blastGain.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+    blast.connect(blastFilter).connect(blastGain).connect(audioCtx.destination);
+    blast.start(now);
+    blast.stop(now + 1.8);
+
+    // BOMB: shrapnel crackle — high freq debris
+    const shrapnel = createNoise(0.8);
+    const shrapFilter = audioCtx.createBiquadFilter();
+    shrapFilter.type = "highpass";
+    shrapFilter.frequency.setValueAtTime(2000, now + 0.03);
+    shrapFilter.frequency.exponentialRampToValueAtTime(500, now + 0.8);
+    const shrapGain = audioCtx.createGain();
+    shrapGain.gain.setValueAtTime(0.0, now);
+    shrapGain.gain.linearRampToValueAtTime(0.3, now + 0.05);
+    shrapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    shrapnel.connect(shrapFilter).connect(shrapGain).connect(audioCtx.destination);
+    shrapnel.start(now);
+    shrapnel.stop(now + 0.8);
+
+    // BOMB: delayed secondary detonation
+    const boom2 = audioCtx.createOscillator();
+    boom2.type = "sine";
+    boom2.frequency.setValueAtTime(50, now + 0.2);
+    boom2.frequency.exponentialRampToValueAtTime(5, now + 1.2);
+    const boom2Gain = audioCtx.createGain();
+    boom2Gain.gain.setValueAtTime(0.0, now);
+    boom2Gain.gain.linearRampToValueAtTime(0.4, now + 0.2);
+    boom2Gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+    boom2.connect(boom2Gain).connect(audioCtx.destination);
+    boom2.start(now);
+    boom2.stop(now + 1.2);
+
+    const blast2 = createNoise(1.0);
+    const blast2Filter = audioCtx.createBiquadFilter();
+    blast2Filter.type = "lowpass";
+    blast2Filter.frequency.setValueAtTime(4000, now + 0.2);
+    blast2Filter.frequency.exponentialRampToValueAtTime(50, now + 1.2);
+    const blast2Gain = audioCtx.createGain();
+    blast2Gain.gain.setValueAtTime(0.0, now);
+    blast2Gain.gain.linearRampToValueAtTime(0.3, now + 0.22);
+    blast2Gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+    blast2.connect(blast2Filter).connect(blast2Gain).connect(audioCtx.destination);
+    blast2.start(now);
+    blast2.stop(now + 1.2);
   }
 }
 
@@ -854,6 +1004,39 @@ function spawnExplosion(x, y, color) {
   }
 }
 
+let screenShake = 0;
+let screenFlash = 0;
+
+function spawnBigExplosion(x, y) {
+  const colors = ["#ff0", "#f80", "#f00", "#fff", "#ff4400", "#ffcc00"];
+  // Lots of particles in multiple waves
+  for (let i = 0; i < 60; i++) {
+    const c = colors[Math.floor(Math.random() * colors.length)];
+    const p = new Particle(x, y, c);
+    p.vx = (Math.random() - 0.5) * 10;
+    p.vy = (Math.random() - 0.5) * 10;
+    p.life = 30 + Math.random() * 40;
+    p.w = 2 + Math.random() * 4;
+    p.h = p.w;
+    particles.push(p);
+  }
+  // Ring of debris
+  for (let i = 0; i < 20; i++) {
+    const angle = (i / 20) * Math.PI * 2;
+    const speed = 3 + Math.random() * 4;
+    const c = colors[Math.floor(Math.random() * colors.length)];
+    const p = new Particle(x, y, c);
+    p.vx = Math.cos(angle) * speed;
+    p.vy = Math.sin(angle) * speed;
+    p.life = 40 + Math.random() * 20;
+    p.w = 3;
+    p.h = 3;
+    particles.push(p);
+  }
+  screenShake = 15;
+  screenFlash = 10;
+}
+
 // Collision detection (AABB)
 function checkCollision(r1, r2) {
   return (
@@ -949,11 +1132,7 @@ function update() {
       if (!bullet.markedForDeletion && checkCollision(bullet, player)) {
         playSound("player_death");
         bullet.markedForDeletion = true;
-        spawnExplosion(
-          player.x + player.w / 2,
-          player.y + player.h / 2,
-          player.color,
-        );
+        spawnBigExplosion(player.x + player.w / 2, player.y + player.h / 2);
         isGameOver = true;
         gameOverPanel.classList.remove("hidden");
       }
@@ -964,11 +1143,7 @@ function update() {
     if (!enemy.markedForDeletion && checkCollision(player, enemy)) {
       // Player hit!
       playSound("player_death");
-      spawnExplosion(
-        player.x + player.w / 2,
-        player.y + player.h / 2,
-        player.color,
-      );
+      spawnBigExplosion(player.x + player.w / 2, player.y + player.h / 2);
       isGameOver = true;
       gameOverPanel.classList.remove("hidden");
     }
@@ -1010,8 +1185,18 @@ function update() {
 }
 
 function draw() {
+  ctx.save();
+
+  // Screen shake
+  if (screenShake > 0) {
+    const shakeX = (Math.random() - 0.5) * screenShake * 1.5;
+    const shakeY = (Math.random() - 0.5) * screenShake * 1.5;
+    ctx.translate(shakeX, shakeY);
+    screenShake--;
+  }
+
   ctx.fillStyle = "#050510";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(-10, -10, canvas.width + 20, canvas.height + 20);
 
   // Draw simple stars in background based on frame
   ctx.fillStyle = "#fff";
@@ -1036,12 +1221,31 @@ function draw() {
   droppedPowerUps.forEach((p) => p.draw());
   particles.forEach((p) => p.draw());
   floatingTexts.forEach((t) => t.draw());
+
+  // Screen flash
+  if (screenFlash > 0) {
+    ctx.fillStyle = "#fff";
+    ctx.globalAlpha = screenFlash / 10;
+    ctx.fillRect(-10, -10, canvas.width + 20, canvas.height + 20);
+    ctx.globalAlpha = 1.0;
+    screenFlash--;
+  }
+
+  ctx.restore();
 }
 
 function gameLoop() {
   update();
+
+  // Keep particles and flash/shake animating after death
+  if (isGameOver) {
+    particles.forEach((p) => p.update());
+    particles = particles.filter((p) => !p.markedForDeletion);
+  }
+
   draw();
-  if (!isGameOver) {
+
+  if (!isGameOver || particles.length > 0 || screenShake > 0 || screenFlash > 0) {
     requestAnimationFrame(gameLoop);
   }
 }
